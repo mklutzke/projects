@@ -7,7 +7,7 @@ Social network analysis using data from the preprint server arXiv.
 Final project for COGS-Q370: Experiments & Models in Cognition. Files are in the folder "q370".
 
 ### Instructional staff salaries at US academic institutions
-Exploring how gender and academic rank relate to the salaries for instructional staff. 
+Exploring how gender and academic rank relate to the salary amounts for instructional staff. 
 
 Final project for STAT-S470: Exploratory Data Analysis. Files are in the folder "s470".
 

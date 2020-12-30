@@ -1,0 +1,509 @@
+---
+title: "Instructional Staff Salaries at US Academic Institutions"
+author: "Morgan Klutzke"
+date: "11/1/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+**Research question: how do gender and academic rank relate to instructional staff salaries at US academic institutions?**
+
+Data used in this report comes from the Integrated Postsecondary Education Data System (IPEDS) from the National Center for Education Statistics (NCES). The dataset has information about instructional staff for the academic year 2018-19 for over 4,000 academic institutions in the US. 
+
+Our main variables of interest are average salary, gender, and academic rank. Average salary is given in US dollars, and computed for each combination of gender, academic rank, and other variables for each institution. In this dataset, gender is a binary variable (man or woman). Academic rank refers to job titles assigned by the institution (e.g. professor, associate professor, assistant professor, etc). I also considered the length of the contracted teaching period to be another relevant variable. This is given as the number of months worked, and ranges from 9 to 12 months. 
+
+Let’s start by looking at the impact of gender on average salary. Across all the academic institutions surveyed, the average salary for men was \$97,153 and the average salary for women was $81,272. This seems like a substantial difference, but it’s hard to conclude anything from just these two numbers. It would be more informative to look at the distribution of average salaries. We can compare the average salary distributions for men and women using a two-sample Q-Q plot. In the figure below, each point is an academic institution, with the x-axis representing the average salary for male staff at that institution and the y-axis representing the average salary for female staff.
+
+
+```{r}
+# Load packages
+library(GGally)
+library(scales)
+library(mgcv)
+library(broom)
+library(MASS)
+library(arm)
+library(ggmosaic)
+library(tidyverse)
+library(ggridges)
+
+# Colorblind-friendly palette from https://jfly.uni-koeln.de/color/
+cb_palette = c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# Using colors from above for project-specific palettes
+cb_gender = c("#CC79A7", "#0072B2")
+cb_rank = c("#D55E00", "#E69F00", "#F0E442", "#009E73", "#56B4E9", "#999999")
+
+# Data is from IPEDS https://nces.ed.gov/ipeds/
+# Instructional staff at US academic institutions for 2018-19 school year
+sal2018 <- read_csv("sal2018_is.csv")
+
+#length(unique(sal2018$UNITID)) # 4014 institutions represented
+
+# Cleaning
+sal2018_clean <- sal2018 %>%
+  filter(ARANK != 7) %>% #remove redundant summary value
+  transmute( #give variables easier names to work with
+    id = UNITID, 
+    rank = ARANK, 
+    staff.9_m = SA09MCM, 
+    staff.9_f = SA09MCW, 
+    staff.10_m = SA10MCM, 
+    staff.10_f = SA10MCW, 
+    staff.11_m = SA11MCM, 
+    staff.11_f = SA11MCW,
+    staff.12_m = SA12MCM, 
+    staff.12_f = SA12MCW, 
+    outl.9_m = SA09MOM, 
+    outl.9_f = SA09MOW, 
+    outl.10_m = SA10MOM, 
+    outl.10_f = SA10MOW, 
+    outl.11_m = SA11MOM, 
+    outl.11_f = SA11MOW, 
+    outl.12_m = SA12MOM, 
+    outl.12_f = SA12MOW, 
+    sal.9_m = SA09MAM, 
+    sal.9_f = SA09MAW, 
+    sal.10_m = SA10MAM, 
+    sal.10_f = SA10MAW, 
+    sal.11_m = SA11MAM, 
+    sal.11_f = SA11MAW, 
+    sal.12_m = SA12MAM, 
+    sal.12_f = SA12MAW
+    ) %>% 
+  pivot_longer( #organize into long tidy format
+    cols = !c(id, rank), 
+    names_to = c(".value", "contract_length", "gender"), 
+    names_pattern = "(.*)\\.(.*)_(.)"
+    ) %>%
+  mutate( #make a column containing the actual names for the academic ranks
+    rank_names = case_when(
+      rank == 1 ~ "Professor",
+      rank == 2 ~ "Associate professor",
+      rank == 3 ~ "Assistant professor",
+      rank == 4 ~ "Instructor",
+      rank == 5 ~ "Lecturer",
+      rank == 6 ~ "No academic rank"
+    )
+  ) %>% 
+  mutate( #now make this a factor
+    rank_names = factor(rank_names, levels = c(
+      "Professor",
+      "Associate professor",
+      "Assistant professor",
+      "Instructor", 
+      "Lecturer",
+      "No academic rank"
+      ))
+    ) %>%
+  mutate( #now make another but in the reverse order because different things order factors in different ways
+    rank_names_rev = factor(rank_names, levels = c(
+      "No academic rank", 
+      "Lecturer", 
+      "Instructor",
+      "Assistant professor",
+      "Associate professor",
+      "Professor"
+      ), ordered = TRUE)
+    ) %>%
+  mutate(gender = if_else(gender == "f", "Female", "Male")) %>% #make the gender variable more straightfoward
+  filter(staff != 0) #get rid of rows with no data
+
+# Look at the average salary for each gender:
+# $97,153.47 for men and $81,272.41 for women
+#sal2018_clean %>% group_by(gender) %>% summarize(avg_sal = sum(outl)/sum(staff))
+
+# Create df for weighted salary averages by gender for each institution
+sal2018_gender <- sal2018_clean %>%
+  group_by(id, gender) %>%
+  summarize(total_staff = sum(staff), total_outlays = sum(outl)) %>%
+  mutate(avg_sal = total_outlays / total_staff)
+
+# Two-sample QQ plot for comparing distributions
+male_sal <- filter(sal2018_gender, gender == "Male")$avg_sal
+female_sal <- filter(sal2018_gender, gender == "Female")$avg_sal
+qq_df <- as.data.frame(qqplot(male_sal, female_sal, plot.it = FALSE))
+ggplot(qq_df, aes(x = x, y = y)) +
+  geom_point() +
+  geom_abline() +
+  labs(title = "Two-sample QQ plot: average male and female salaries\nat U.S. academic institutions", x = "Average male salary", y = "Average female salary") +
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = comma)
+```
+
+If there weren’t differences between the average salaries for men and women, we would expect the data to follow the identity line y = x (shown in the figure above as a solid line). Instead, it looks like it falls on a line with a y-intercept of 0 (so no additive shift) but a slope that’s less than 1 (suggesting a multiplicative shift). In other words, the above plot suggests that there is little difference in salaries between men and women for most institutions, but for the especially high-paying institutions (i.e. average salaries above $200,000) there is a more noticeable discrepancy between how much male and female staff are paid.
+
+There are a number of other ways to approach this data. It includes not just the average salaries, but also the means to compute them (i.e. the number of staff and total salary outlays). We would expect the total number of staff and total salary outlays to be proportional to each other, which they are, as indicated by the red line on the first plot below representing a linear regression. However, the ratio changes slightly if you look at just men or just women.
+
+```{r}
+# Create df for just staff, outlays, and average salary for each institution
+sal2018_institutions <- sal2018_clean %>%
+  group_by(id) %>%
+  summarize(total_staff = sum(staff), total_outlays = sum(outl)) %>%
+  mutate(avg_sal = total_outlays / total_staff)
+
+# Outlays ~ staff
+ggplot(sal2018_institutions, aes(x = total_staff, y = total_outlays)) + geom_point() + 
+  scale_y_continuous(labels = comma) + 
+  geom_smooth(se = FALSE, method = "lm", color = 'red') +
+  labs(x = "Number of instructional staff", y = "Total salary outlays", title = "Salary outlays as a function of staff")
+
+# Outlays ~ staff, by gender
+ggplot(sal2018_gender, aes(x = total_staff, y = total_outlays)) + geom_point(aes(color = gender)) + 
+  scale_y_continuous(labels = comma) +
+  geom_smooth(se = FALSE, method = "lm", aes(color = gender)) + 
+  #geom_smooth(se = FALSE, method = "lm", color = "black", linetype = "dashed") +
+  labs(x = "Number of instructional staff", y = "Total salary outlays", title = "Salary outlays as a function of staff, by gender") +
+  scale_color_manual("Gender", values = cb_gender) +
+  theme(legend.position = c(0.8,0.2))
+```
+
+The colored lines in the second figure are linear regressions for just male staff (blue) and just female staff (pink). While both lines pass through the origin, their slopes are somewhat different. The blue/male regression line is steeper than the pink/female regression line. This indicates that the instructional staff salary outlays increase faster for men than women as the number of staff increases. However, the difference in slopes isn’t huge, and a contributing factor may be the lack of institutions with large numbers of female instructional staff.
+
+We can also look at how average salary changes with academic rank. The density plots below show the distribution of average salaries for each rank. Unsurprisingly, the average salary for instructional staff tends to increase with higher academic rank. 
+
+```{r eval=FALSE}
+# Average salary ~ staff
+ggplot(sal2018_institutions, aes(x = total_staff, y = avg_sal)) + 
+  geom_point() + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_log10() +
+  geom_smooth(se = FALSE, method = "lm", color = "red") +
+  labs(x = "Number of instructional staff", y = "Average staff salary", title = "Average salary as a function of staff, log scaled")
+
+# Average salary ~ staff, by gender
+ggplot(sal2018_gender, aes(x = total_staff, y = avg_sal)) + 
+  geom_point(aes(color = gender)) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_log10() +
+  geom_smooth(se = FALSE, method = "lm", aes(color = gender)) + 
+  #geom_smooth(se = FALSE, method = "lm", color = "black", linetype = "dashed") +
+  labs(x = "Number of instructional staff", y = "Average staff salary", title = "Average salary as a function of staff, by gender, log scaled") +
+  scale_color_manual("Gender", values = cb_gender)
+
+# Average salaries for each academic rank across all institutions
+sal2018_clean %>% group_by(rank_names) %>% summarize(avg_sal = sum(outl)/sum(staff))
+
+# Average salaries for each academic rank & gender combination across all institutions
+across_institutions <- sal2018_clean %>% 
+  group_by(rank_names, rank_names_rev, gender) %>% 
+  summarize(avg_sal = sum(outl)/sum(staff))
+
+ggplot(across_institutions, aes(x = rank_names_rev, y = avg_sal, color = gender)) +
+  geom_point(position = position_dodge2(width = 0.7), size = 3) +
+  geom_linerange(aes(ymin = 0, ymax = avg_sal), position = position_dodge2(width = 0.7), size = 1) +
+  scale_color_manual("Gender", values = cb_gender) +
+  scale_y_continuous(labels = comma) +
+  coord_flip() +
+  labs(y = "Average salary", x = "Academic rank", title = "Average instructional staff salary across U.S. institutions, by academic rank and gender")
+```
+```{r}
+# Create df for weighted average salary by academic rank for each institution
+sal2018_rank <- sal2018_clean %>%
+  group_by(id, rank_names, rank_names_rev) %>%
+  summarize(avg_sal = sum(outl) / sum(staff))
+
+# Create df for weighted average salary by academic rank and gender for each institution
+sal2018_gender_rank <- sal2018_clean %>%
+  group_by(id, gender, rank_names, rank_names_rev) %>%
+  summarize(avg_sal = sum(outl) / sum(staff))
+```
+```{r eval=FALSE}
+# Boxplots
+ggplot(sal2018_rank, aes(x = rank_names_rev, y = avg_sal)) + 
+  geom_boxplot() + 
+  scale_y_continuous(labels = comma) + 
+  #scale_color_manual(values = cb_rank) +
+  #guides(color = FALSE) +
+  labs(x = "", y = "Average salary", title = "Distribution of average salaries by academic rank") + 
+  coord_flip()
+
+ggplot(sal2018_gender_rank, aes(x = rank_names_rev, y = avg_sal)) + 
+  geom_boxplot(aes(color = gender)) + 
+  scale_y_continuous(labels = comma) + 
+  labs(x = "", y = "Average salary", title = "Average salaries by academic rank and gender") + 
+  coord_flip() + 
+  scale_color_manual("Gender", values = cb_gender)
+```
+```{r}
+ggplot(sal2018_rank, aes(x = avg_sal, y = rank_names_rev)) + 
+  geom_density_ridges(alpha = 0.5, aes(fill = rank_names)) + 
+  scale_x_continuous(labels = comma) + 
+  scale_fill_manual(values = cb_rank) +
+  guides(color = FALSE, fill = FALSE) +
+  labs(x = "Average salary", y = "", title = "Distribution of average salaries by academic rank")
+```
+
+The three distributions at the bottom (“instructor”, “lecturer”, and “no academic rank”) have similar distributions, but there are noticeable increases in salary from “assistant professor”, to “associate professor”, to “professor”. The range of salaries extends further in the positive direction and the means increase with it. 
+
+It’s also worth exploring the relationship between gender and academic rank for average salaries. We can make a similar graph to the one above, but this time including gender:
+
+```{r}
+ggplot(sal2018_gender_rank, aes(x = avg_sal, y = rank_names_rev)) + 
+  geom_density_ridges(alpha = 0.3, aes(fill = gender)) + 
+  scale_x_continuous(labels = comma) + 
+  labs(x = "Average salary", y = "", title = "Distribution of average salaries by academic rank\nand gender") + 
+  scale_fill_manual("Gender", values = cb_gender) +
+  theme(legend.position = c(0.8,0.3))
+```
+
+The distributions mostly overlap, with gender not making much of a difference.
+
+It also makes sense to look at the underlying frequencies for each of these variables, so below I’ve included some mosaic plots. The first shows the conditional distribution of gender for each rank (e.g. if you picked an assistant professor at random, what’s the probability they would be a woman?). The width of the blocks for each rank indicates the relative frequency of instructional staff with that rank. 
+
+```{r eval=FALSE}
+# Proportion of men/women total
+total_staff <- sum(sal2018_clean$staff)
+sal2018_clean %>% group_by(gender) %>% summarize(staff_sum = sum(staff)) %>% mutate(staff_percentage = staff_sum / total_staff)
+```
+```{r}
+test <- mutate(sal2018_clean, rank_names_rev = ifelse(rank_names_rev == "No academic rank", "None", as.character(rank_names_rev))) %>%
+  mutate( 
+    rank_names_rev = factor(rank_names_rev, levels = c(
+      "None", 
+      "Lecturer", 
+      "Instructor",
+      "Assistant professor",
+      "Associate professor",
+      "Professor"
+      ), ordered = TRUE)
+    )
+
+# Gender, given rank
+ggplot(test) +
+  geom_mosaic(aes(product(gender, rank_names_rev), weight = staff, fill = gender)) +
+  #theme(axis.text.x = element_text(angle = 20, hjust = 0.75)) +
+  labs(x = "", y = "", title = "Gender proportions given academic rank") +
+  scale_fill_manual("Gender", values = cb_gender) +
+  guides(fill = FALSE)
+```
+
+We can easily see from this plot how the relative frequency of women decreases with increasing academic rank. Also notice that the three highest ranks make up much more than half of all instructional staff.
+
+Let’s switch the variables on the above plot, so we can see the conditional distribution of academic rank given gender (e.g. if you picked a female instructional staff member at random, what’s the probability they would be an assistant professor?).
+
+```{r}
+# Rank, given gender
+ggplot(sal2018_clean) + 
+  geom_mosaic(aes(x=product(rank_names, gender), weight = staff, fill = rank_names)) +
+  labs(x = "", y = "", title = "Academic rank proportions given gender") +
+  scale_fill_manual("Academic rank", values = cb_rank) +
+  guides(fill = FALSE)
+```
+
+The ratio of male to female instructional staff is roughly equal: 52% are male and 48% are female. But men are much more likely than women to be professors. 
+
+```{r eval=FALSE}
+# Gender, given contract length
+ggplot(sal2018_clean) +
+  geom_mosaic(aes(product(gender, contract_length), weight = staff, fill = gender)) +
+  labs(x = "Contract length, in months", y = "", title = "Gender proportions given contract length") +
+  scale_fill_manual("Gender", values = cb_gender) +
+  guides(fill = FALSE)
+
+# Rank, given contract length
+ggplot(sal2018_clean) + 
+  geom_mosaic(aes(product(rank_names, contract_length), weight = staff, fill = rank_names)) +
+  labs(x = "", y = "", title = "Academic rank proportions given contract length") +
+  scale_fill_manual("Academic rank", values = cb_rank) +
+  guides(fill = FALSE)
+
+# Average salaries for each length of contract across institutions
+sal2018_clean %>% group_by(contract_length) %>% summarize(avg_sal = sum(outl)/sum(staff))
+
+# Weighted average salary for each contract length and gender combination across all institutions
+across_institutions_contracts <- sal2018_clean %>% 
+  group_by(contract_length, gender) %>% 
+  summarize(avg_sal = sum(outl)/sum(staff))
+
+ggplot(across_institutions_contracts, aes(x = contract_length, y = avg_sal, color = gender)) +
+  geom_point(position = position_dodge2(width = 0.3), size = 3) +
+  geom_linerange(aes(ymin = 0, ymax = avg_sal), position = position_dodge2(width = 0.3), size = 1) +
+  scale_color_manual("Gender", values = cb_gender) +
+  scale_y_continuous(labels = comma) +
+  coord_flip() +
+  labs(y = "Average salary", x = "Contract length, in months", title = "Average instructional staff salary across U.S. institutions, by contract length and gender")
+
+# Create df for weighted average salary by contract length for each institution
+sal2018_contract <- sal2018_clean %>%
+  group_by(id, contract_length) %>%
+  summarize(total_staff = sum(staff), total_outlays = sum(outl)) %>%
+  mutate(avg_sal = total_outlays / total_staff)
+
+# Create df for weighted average salary by contract length and gender for each institution
+sal2018_contract_gender <- sal2018_clean %>%
+  group_by(id, contract_length, gender) %>%
+  summarize(total_staff = sum(staff), total_outlays = sum(outl)) %>%
+  mutate(avg_sal = total_outlays / total_staff)
+
+# Boxplots
+ggplot(mutate(sal2018_contract, contract_length = as.factor(contract_length)), aes(x = contract_length, y = avg_sal)) + 
+  geom_boxplot() + 
+  scale_y_continuous(labels = comma) + 
+  labs(x = "Contract length, in months", y = "Average salary", title = "Distribution of average salaries by contract length") +
+  coord_flip()
+
+ggplot(mutate(sal2018_contract_gender, contract_length = as.factor(contract_length)), aes(x = contract_length, y = avg_sal, color = gender)) + 
+  geom_boxplot() + 
+  scale_y_continuous(labels = comma) + 
+  labs(x = "Contract length, in months", y = "Average salary", title = "Distribution of average salaries by contract length and gender") +
+  coord_flip() + 
+  scale_color_manual("Gender", values = cb_gender)
+
+ggplot(mutate(sal2018_clean, contract_length = as.factor(contract_length)), aes(x = contract_length, y = sal, color = gender)) + 
+  geom_boxplot() + 
+  facet_wrap(~rank_names_rev) + 
+  scale_y_continuous(labels = comma) + 
+  labs(x = "Contract length, in months", y = "Average salary", title = "Distribution of average salaries by academic rank, contract length, and gender") +
+  coord_flip() + 
+  scale_color_manual("Gender", values = cb_gender)
+
+ggplot(sal2018_clean, aes(x = rank_names, y = sal, color = gender)) + 
+  geom_boxplot() + 
+  facet_wrap(~contract_length, labeller = "label_both") + 
+  scale_y_continuous(labels = comma) + 
+  labs(x = "Academic rank", y = "Average salary", title = "Distribution of average salaries by academic rank, contract length, and gender") +
+  coord_flip() + 
+  scale_color_manual("Gender", values = cb_gender)
+
+# Density plots
+ggplot(mutate(sal2018_clean, contract_length = as.factor(contract_length)), aes(x = sal, y = contract_length)) + 
+  geom_density_ridges(alpha = 0.3, aes(fill = gender)) + 
+  scale_x_continuous(labels = comma) + 
+  labs(x = "Average salary", y = "Contract length, in months", title = "Distribution of average salaries by contract length and gender") + 
+  scale_fill_manual("Gender", values = cb_gender) +
+  guides(fill = FALSE)
+
+ggplot(mutate(sal2018_clean, contract_length = as.factor(contract_length)), aes(x = sal, y = contract_length)) + 
+  geom_density_ridges(alpha = 0.3, aes(fill = gender)) + 
+  scale_x_continuous(labels = comma) + 
+  labs(x = "Average salary", y = "Contract length, in months", title = "Distribution of average salaries by academic rank, contract length, and gender") + 
+  scale_fill_manual("Gender", values = cb_gender) +
+  guides(fill = FALSE) +
+  facet_wrap(~rank_names)
+```
+
+I created a linear model to predict average salary based on the variables we’ve discussed. The first iteration of the model uses just gender and academic rank as explanatory variables. In the original dataset academic rank was coded numerically, but I treated it as a categorical variable for modeling purposes. Also, I initially included an interaction between gender and academic rank, but I found it made almost no difference to the proportion of variance explained by the model (which was R2 = 0.22), so I removed it for simplicity.
+
+```{r eval=FALSE}
+# (1) Gender only
+sal.lm <- lm(sal ~ gender, data = sal2018_clean)
+display(sal.lm)
+sal.lm.df <- augment(sal.lm)
+var(sal.lm.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+
+ggplot(sal.lm.df, aes(sample = .resid)) + 
+  stat_qq() +
+  geom_abline(intercept = 0, slope = summary(sal.lm)$sigma)
+
+ggplot(sal.lm.df, aes(sample = .resid)) +
+  stat_qq() +
+  geom_abline(intercept = 0, slope = summary(sal.lm)$sigma) +
+  facet_wrap(~gender)
+```
+```{r results=FALSE}
+# (2) Gender & academic rank
+sal.lm2 <- lm(sal ~ gender + rank_names_rev, data = sal2018_clean)
+display(sal.lm2)
+sal.lm2.df <- augment(sal.lm2)
+var(sal.lm2.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+
+# Adding interaction term
+#sal.lm2a <- lm(sal ~ gender * rank_names, data = sal2018_clean)
+#display(sal.lm2a)
+#sal.lm2a.df <- augment(sal.lm2a)
+#var(sal.lm2a.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+
+# Try quadratic
+#sal.lm2b <- lm(sal ~ gender + rank + I(rank^2), data = sal2018_num)
+#display(sal.lm2b)
+#sal.lm2b.df <- augment(sal.lm2b)
+#var(sal.lm2b.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+
+# Quadratic with interactions
+#sal.lm2c <- lm(sal ~ gender * rank * I(rank^2), data = sal2018_num)
+#display(sal.lm2c)
+#sal.lm2c.df <- augment(sal.lm2c)
+#var(sal.lm2c.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+```
+```{r eval=FALSE}
+# Plots
+ggplot(sal.lm2.df, aes(sample = .resid)) + 
+  stat_qq() +
+  geom_abline(intercept = 0, slope = summary(sal.lm2)$sigma)
+
+ggplot(sal.lm2.df, aes(sample = .resid)) +
+  stat_qq() +
+  geom_abline(intercept = 0, slope = summary(sal.lm2)$sigma) +
+  facet_wrap(~gender)
+
+ggplot(sal.lm2.df, aes(sample = .resid)) +
+  stat_qq() +
+  geom_abline(intercept = 0, slope = summary(sal.lm2)$sigma) +
+  facet_wrap(~rank_names_rev)
+
+ggplot(sal.lm2.df, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+```
+```{r}
+ggplot(sal.lm2.df, aes(x = .fitted, y = rank_names_rev)) + 
+  geom_density_ridges(alpha = 0.3, aes(fill = gender)) + 
+  scale_x_continuous(labels = comma) + 
+  labs(x = "Model fit", y = "Academic rank", title = "Model 1 prediction for average salary") + 
+  scale_fill_manual("Gender", values = cb_gender) +
+  theme(legend.position = c(0.85, 0.2))
+```
+
+The figure above shows what the model predicts average salary will be, based on academic rank and gender. The influence of academic rank is in line with what we saw before: similarly centered distributions for the bottom three ranks, but then the center starts to move farther to the right as you go up. Gender in this model is a simple binary variable—if the gender is male, the whole distribution is shifted to the right by a set amount, which in this case is $2,366.
+
+In the second and final iteration of the model I included contract length as a term in the regression. Like academic rank, contract length was originally coded numerically but in the model it is treated as an ordered categorical variable. I experimented with using interaction terms again, but still they made little difference: with no interactions R2 = 0.27 and with every possible interaction included R2 = 0.28. So, as before, I decided not to include the interactions for simplicity. 
+
+```{r results=FALSE}
+# (3) Gender, academic rank, & contract length
+sal.lm3 <- lm(sal ~ gender + rank_names_rev + factor(contract_length), data = sal2018_clean)
+display(sal.lm3)
+sal.lm3.df <- augment(sal.lm3)
+var(sal.lm3.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+
+# Interactions
+#sal.lm3a <- lm(sal ~ gender * rank_names * factor(contract_length), data = sal2018_clean)
+#display(sal.lm3a)
+#sal.lm3a.df <- augment(sal.lm3a)
+#var(sal.lm3a.df$.fitted)/var(sal2018_clean$sal, na.rm = TRUE)
+```
+```{r eval=FALSE}
+# Plots
+ggplot(sal.lm3.df, aes(x = .fitted, y = .std.resid)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  labs(x = "Fitted values", y = "Residuals", title = "Residual plot for Model 2")
+```
+```{r fig.width=7, fig.height=7}
+ggplot(sal.lm3.df, aes(x = .fitted, y = `factor(contract_length)`)) + 
+  geom_density_ridges(alpha = 0.3, aes(fill = gender)) + 
+  scale_x_continuous(labels = comma) + 
+  labs(x = "Model fit", y = "Contract length, in months", title = "Model 2 prediction for average salary") + 
+  scale_fill_manual("Gender", values = cb_gender) +
+  guides(fill = FALSE) +
+  facet_wrap(~rank_names_rev, ncol = 2)
+```
+
+This figure shows the predictions for average salary from the second model iteration. Though it’s a little harder to see in this faceted graph, the model treats gender much the same as it did before, shifting the distribution higher if the gender is male. Also similar to before, the fitted salary distributions shift slightly higher and spread a bit wider as academic rank increases. The third and final variable, contract length, also shifts the distribution higher as it increases, no matter what the academic ranks is. 
+
+This exploration of the IPEDS data has revealed that at US academic institutions, instructional staff salaries tend to be higher for males than females. Salaries tend to be highest for professors, then associate professors, then assistant professors, but then are roughly comparable for instructors, lecturers, and instructional staff with no academic rank. Although there are certainly differences in the proportion of different genders at different academic ranks, there is little evidence of an interaction effect between academic rank and gender when it comes to salaries. 
+
+**Summary**
+
+I found that, on average, female instructional staff are paid less than male instructional staff. However, the difference in average salaries between men and women is lessened somewhat when other factors are taken into account, such as academic rank. 
+
+A major contributing factor to the pay gap seems to be that high-ranking academic positions are much more likely to be held by men than women (e.g. professors are more likely to be male, while assistant professors are more likely to be female). These academic ranks also affect salary: professors tend to be paid more than associate professors, who are paid more than assistant professors, who are paid more than instructors or lecturers.
+
+While both gender and academic rank have an impact on instructional staff salaries, there is little evidence of an interaction between them.
+
+Gender, academic rank, and contract length do not capture much of the variation in instructional staff salaries. Together, they account for about a quarter of the variance in the data. In other words, there are undoubtedly other variables influencing instructional staff salaries which I have not investigated in this report.

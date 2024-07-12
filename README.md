@@ -3,14 +3,18 @@ This is a repository for some of the projects I've worked on, so I can gather th
 
 ## Calibrating the Perceived Strength of Evidence of Forensic Testimony Statements
 
-Files are in the folder "perceivedStrength".
+Research on how laypeople interpret the technical language used by forensic examiners. 
+
+Published in Science & Justice, January 2023. Files are in the folder "perceivedStrength".
 
 ![response_distributions](https://github.com/mklutzke/projects/assets/44853263/93f71b12-67fc-4080-8d86-8e682d88d0ad)
 
 
 ## Validating Strength-of-Support Conclusion Scales for Fingerprint, Footwear, and Toolmark Impressions
 
-Files are in the folder "validatingSoS".
+Research on how changing the conclusion scales used by forensic examiners affects their final conclusions.
+
+Published in the Journal of Forensic Sciences, March 2022. Files are in the folder "validatingSoS".
 
 ![fingerprints_scale_comparison](https://github.com/mklutzke/projects/assets/44853263/11b94857-f664-4eae-9358-7cee8345f7da)
 

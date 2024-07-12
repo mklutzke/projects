@@ -1,16 +1,16 @@
 # Projects
-This is a repository for some of the projects I've worked on, so I can gather things in one place and show them to others. In reverse chronological order.
+This is a repository for some of the projects I've worked on, so I can gather things in one place and show them to others.
 
 ## Calibrating the Perceived Strength of Evidence of Forensic Testimony Statements
 
-
+Files are in the folder "perceivedStrength".
 
 ![response_distributions](https://github.com/mklutzke/projects/assets/44853263/93f71b12-67fc-4080-8d86-8e682d88d0ad)
 
 
 ## Validating Strength-of-Support Conclusion Scales for Fingerprint, Footwear, and Toolmark Impressions
 
-
+Files are in the folder "validatingSoS".
 
 ![fingerprints_scale_comparison](https://github.com/mklutzke/projects/assets/44853263/11b94857-f664-4eae-9358-7cee8345f7da)
 
